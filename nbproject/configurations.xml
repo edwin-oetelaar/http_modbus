@@ -4,6 +4,7 @@
     <logicalFolder name="HeaderFiles"
                    displayName="Header Files"
                    projectFiles="true">
+      <itemPath>http_machine.h</itemPath>
       <itemPath>server.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ResourceFiles"
@@ -13,6 +14,7 @@
     <logicalFolder name="SourceFiles"
                    displayName="Source Files"
                    projectFiles="true">
+      <itemPath>http_machine.c</itemPath>
       <itemPath>main.c</itemPath>
       <itemPath>not_used.c.c</itemPath>
       <itemPath>server.c</itemPath>
@@ -42,6 +44,10 @@
           <warningLevel>2</warningLevel>
         </cTool>
       </compileType>
+      <item path="http_machine.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="http_machine.h" ex="false" tool="3" flavor2="0">
+      </item>
       <item path="main.c" ex="false" tool="0" flavor2="0">
       </item>
       <item path="not_used.c.c" ex="false" tool="0" flavor2="0">
@@ -71,6 +77,10 @@
           <developmentMode>5</developmentMode>
         </asmTool>
       </compileType>
+      <item path="http_machine.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="http_machine.h" ex="false" tool="3" flavor2="0">
+      </item>
       <item path="main.c" ex="false" tool="0" flavor2="0">
       </item>
       <item path="not_used.c.c" ex="false" tool="0" flavor2="0">
@@ -104,6 +114,10 @@
           <commandlineTool>mipsel-linux-linux26-gcc</commandlineTool>
         </linkerTool>
       </compileType>
+      <item path="http_machine.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="http_machine.h" ex="false" tool="3" flavor2="0">
+      </item>
       <item path="main.c" ex="false" tool="0" flavor2="0">
       </item>
       <item path="not_used.c.c" ex="false" tool="0" flavor2="0">

@@ -1,8 +1,6 @@
-
-/*
- ** selectserver.c -- a async server
+/* copyright 2015 etc Edwin van den Oetelaar
+ * all rights reserved
  */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +13,8 @@
 #include <sys/time.h>
 
 #include "server.h"
+#include "http_machine.h"
+
 
 void * fd_to_machine_map[1024] = {0,};
 
@@ -27,25 +27,6 @@ void *get_in_addr(struct sockaddr *sa) {
     }
 
     return &(((struct sockaddr_in6*) sa)->sin6_addr);
-}
-
-typedef struct {
-    int current_state; /* state of the machine */
-    struct timeval timestamp; /* buffer timestamping gettimeofday */
-    int buffer_index; /* teller in de linebuffer */
-    char buffer[512]; /* line buffer temp */
-    char requesttype[32]; /* POST GET PUT etc */
-    char URI[512]; /* langer is vast onzin, mag 32k zijn volgens spec */
-    char HOST[512]; /* onzin maar zeker groot genoeg */
-    char BODY[512]; /* body van de POST message komt hier */
-
-} http_state_t;
-
-int http_machine(http_state_t *machine,  int buflen) {
-    /* the machine, uses timestamp to handle timeouts */
-
-    return 0; /* all ok */
-    return -1; /* error, break connection */
 }
 
 int run_server(void) {
@@ -64,7 +45,7 @@ int run_server(void) {
     char remoteIP[INET6_ADDRSTRLEN];
 
     int yes = 1; // for setsockopt() SO_REUSEADDR, below
-    int i,  rv;
+    int i, rv;
 
     struct addrinfo hints, *ai, *p;
 
@@ -131,6 +112,17 @@ int run_server(void) {
         } else if (srv == 0) {
             /* handle timeouts */
             fprintf(stderr, "timeout\n");
+            // signal all running state machines of timer event
+            // TODO
+            int max_to_check = fdmax + 1;
+            int i = 0;
+            for (i = 0; i < max_to_check; i++) {
+                if (fd_to_machine_map[i] != NULL) {
+                    // call that machine
+                    http_machine_step(fd_to_machine_map[i], 0, 0);
+                }
+            }
+
         } else {
             // run through the existing connections looking for data to read
             for (i = 0; i <= fdmax; i++) {
@@ -163,6 +155,8 @@ int run_server(void) {
                                 FD_CLR(newfd, &master); // remove from master set
                                 fprintf(stderr, "OOM, connection removed\n");
                             } else {
+                                /* init machine with defaults */
+                                http_machine_init(ptr);
                                 fprintf(stderr, "new machine created %p\n", ptr);
                                 fd_to_machine_map[newfd] = ptr;
                             }
@@ -170,30 +164,45 @@ int run_server(void) {
                     } else {
                         // handle data from a client
                         http_state_t *client = fd_to_machine_map[i]; /* fd is the index */
-                        ssize_t nbytes = recv(i, client->buffer, sizeof client->buffer, 0);
-                        // if ((nbytes = recv(i, buf, sizeof buf, 0)) <= 0) {
+                        ssize_t nbytes = recv(i, client->recv_buffer, sizeof client->recv_buffer, 0);
+
                         if (nbytes <= 0) {
                             // got error or connection closed by client
                             if (nbytes == 0) {
                                 // connection closed
                                 printf("selectserver: socket %d hung up\n", i);
+                                // signal the state machine, maybe needs to handle this
+                                http_machine_step(client, 0, 1);
+                                // we must clean up always
+
                             } else {
                                 perror("recv");
+                                // we must add cleanup code here TODO
+                                http_machine_step(client, 0, 2); // error msg to machine
                             }
                             close(i); // bye!
                             FD_CLR(i, &master); // remove from master set
+                            http_machine_deinit(client);
+                            free(client);
+                            fd_to_machine_map[i] = 0; /* remove ref */
                         } else {
-                            // we got some data from a client
-                            // int trv = clock_gettime(CLOCK_MONOTONIC,&client->timestamp);
+                            // we got some data from a client, timestamp the data
                             int trv = gettimeofday(&client->timestamp, NULL);
-                            if (trv  == -1) { perror("gettime problem"); }
-                            int rv = http_machine(client, nbytes );
+                            if (trv == -1) {
+                                perror("gettime problem");
+                            }
+                            // feed into state machine
+                            int rv = http_machine_step(client, nbytes, 0);
+                            // on error cleanup the connection and the statemachine
                             if (rv < 0) {
                                 /* error, cleanup */
                                 close(i);
                                 FD_CLR(i, &master); // remove from master set
+                                http_machine_deinit(client);
                                 free(client);
                                 fd_to_machine_map[i] = 0; /* remove ref */
+                            } else {
+                                /* Koffie what else ?? all is OK */
                             }
 
                             //                            for (j = 0; j <= fdmax; j++) {
