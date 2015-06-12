@@ -35,6 +35,7 @@ OBJECTDIR=${CND_BUILDDIR}/${CND_CONF}/${CND_PLATFORM}
 
 # Object Files
 OBJECTFILES= \
+	${OBJECTDIR}/http_machine.o \
 	${OBJECTDIR}/main.o \
 	${OBJECTDIR}/not_used.c.o \
 	${OBJECTDIR}/server.o
@@ -63,6 +64,11 @@ LDLIBSOPTIONS=
 ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/h20_example: ${OBJECTFILES}
 	${MKDIR} -p ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}
 	mipsel-linux-linux26-gcc -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/h20_example ${OBJECTFILES} ${LDLIBSOPTIONS}
+
+${OBJECTDIR}/http_machine.o: http_machine.c 
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -Wall -I../../opt/toolchains/hndtools-mipsel-linux-uclibc-4.2.3/include -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/http_machine.o http_machine.c
 
 ${OBJECTDIR}/main.o: main.c 
 	${MKDIR} -p ${OBJECTDIR}

@@ -1,8 +1,5 @@
-/* 
- * File:   server.h
- * Author: user
- *
- * Created on June 12, 2015, 2:04 PM
+/* copyright 2015 etc Edwin van den Oetelaar
+ * all rights reserved
  */
 
 #ifndef SERVER_H
@@ -13,8 +10,8 @@ extern "C" {
 #endif
 
 #define PORT "9034"   // port we're listening on
-    
-int run_server(void);
+
+    int run_server(void);
 
 
 #ifdef	__cplusplus

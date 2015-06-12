@@ -1,8 +1,5 @@
-/* 
- * File:   main.c
- * Author: user
- *
- * Created on June 10, 2015, 4:03 PM
+/* copyright 2015 etc Edwin van den Oetelaar
+ * all rights reserved
  */
 
 #include <stdio.h>
