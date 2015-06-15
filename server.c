@@ -113,13 +113,29 @@ int run_server(void) {
             /* handle timeouts */
             fprintf(stderr, "timeout\n");
             // signal all running state machines of timer event
-            // TODO
             int max_to_check = fdmax + 1;
             int i = 0;
             for (i = 0; i < max_to_check; i++) {
-                if (fd_to_machine_map[i] != NULL) {
-                    // call that machine
-                    http_machine_step(fd_to_machine_map[i], 0, 0);
+                /* get machine object pointer by FD as id */
+                http_state_t *m = fd_to_machine_map[i];
+                /* is it a machine then handle it */
+                if (m != NULL) {
+                    // set the timestamp
+                    gettimeofday(&m->buffer_timestamp, NULL);
+                    // call that machine, buflen=0 and hangup=0
+                    int smrv = 0;
+                    do {
+                        smrv = http_machine_step(m, 0, 0);
+                    } while (smrv == 1);
+                    if (smrv < 0) {
+                        /* error or timeout we need to close and cleanup */
+                        // on error always clean up anyway
+                        close(i); // bye!
+                        FD_CLR(i, &master); // remove from master set
+                        http_machine_deinit(m);
+                        free(m);
+                        fd_to_machine_map[i] = 0; /* remove ref */
+                    }
                 }
             }
 
@@ -128,7 +144,7 @@ int run_server(void) {
             for (i = 0; i <= fdmax; i++) {
                 if (FD_ISSET(i, &read_fds)) { // we got one!!
                     if (i == listener) {
-                        // handle new connections
+                        // handle new connection
                         addrlen = sizeof remoteaddr;
                         newfd = accept(listener,
                                 (struct sockaddr *) &remoteaddr,
@@ -147,24 +163,24 @@ int run_server(void) {
                                     get_in_addr((struct sockaddr*) &remoteaddr),
                                     remoteIP, INET6_ADDRSTRLEN),
                                     newfd);
-                            /* allocate new struct for this client */
+                            /* allocate new struct for this client and clear it */
                             void *ptr = calloc(1, sizeof (http_state_t));
-                            if (ptr == NULL) {
+                            if (ptr != NULL) {
+                                /* init machine with defaults */
+                                http_machine_init(ptr, newfd);
+                                fprintf(stderr, "new machine created %p with id=%d\n", ptr, newfd);
+                                fd_to_machine_map[newfd] = ptr;
+                            } else {
                                 /* no memory left. stop connection */
                                 close(newfd); // bye!
                                 FD_CLR(newfd, &master); // remove from master set
-                                fprintf(stderr, "OOM, connection removed\n");
-                            } else {
-                                /* init machine with defaults */
-                                http_machine_init(ptr);
-                                fprintf(stderr, "new machine created %p\n", ptr);
-                                fd_to_machine_map[newfd] = ptr;
+                                fprintf(stderr, "OOM, connection removed fd=%d\n", newfd);
                             }
                         }
                     } else {
                         // handle data from a client
                         http_state_t *client = fd_to_machine_map[i]; /* fd is the index */
-                        ssize_t nbytes = recv(i, client->recv_buffer, sizeof client->recv_buffer, 0);
+                        ssize_t nbytes = recv(i, client->recv_buffer, sizeof client->recv_buffer, MSG_NOSIGNAL);
 
                         if (nbytes <= 0) {
                             // got error or connection closed by client
@@ -172,37 +188,78 @@ int run_server(void) {
                                 // connection closed
                                 printf("selectserver: socket %d hung up\n", i);
                                 // signal the state machine, maybe needs to handle this
-                                http_machine_step(client, 0, 1);
+                                while (1 == http_machine_step(client, 0, 1)) {
+                                    fprintf(stderr, "call again\n");
+                                }
                                 // we must clean up always
-
                             } else {
+                                // < 0 from recv, error condition
                                 perror("recv");
                                 // we must add cleanup code here TODO
-                                http_machine_step(client, 0, 2); // error msg to machine
+                                while (1 == http_machine_step(client, 0, 2)) {
+                                    fprintf(stderr, "call again2\n");
+                                } // error msg to machine
                             }
+                            // on error always clean up anyway
                             close(i); // bye!
                             FD_CLR(i, &master); // remove from master set
                             http_machine_deinit(client);
                             free(client);
                             fd_to_machine_map[i] = 0; /* remove ref */
+                            client=NULL;
                         } else {
                             // we got some data from a client, timestamp the data
-                            int trv = gettimeofday(&client->timestamp, NULL);
+                            int trv = gettimeofday(&client->buffer_timestamp, NULL);
                             if (trv == -1) {
                                 perror("gettime problem");
                             }
-                            // feed into state machine
-                            int rv = http_machine_step(client, nbytes, 0);
+                            int smrv = 0;
+                            do {
+                                // feed into state machine
+                                smrv = http_machine_step(client, nbytes, 0);
+                            } while (smrv == 1);
                             // on error cleanup the connection and the statemachine
-                            if (rv < 0) {
+                            if (smrv < 0) {
                                 /* error, cleanup */
                                 close(i);
                                 FD_CLR(i, &master); // remove from master set
                                 http_machine_deinit(client);
                                 free(client);
                                 fd_to_machine_map[i] = 0; /* remove ref */
+                                client = NULL; /* invalidate pointer */
                             } else {
                                 /* Koffie what else ?? all is OK */
+                                /* maybe we need to send stuff out now ?? */
+                                if (jack_ringbuffer_read_space(client->send_queue) > 0) {
+                                    /*
+                                     // where socketfd is the socket you want to make non-blocking
+int status = fcntl(socketfd, F_SETFL, fcntl(socketfd, F_GETFL, 0) | O_NONBLOCK);
+
+if (status == -1){
+  perror("calling fcntl");
+  // handle the error.  By the way, I've never seen fcntl fail in this way
+}
+                                     
+                                     */
+                                    /* copy the data from the queue without moving the read pointer, since we do not know if sending will work */
+                                    char tmp[1024];
+                                    ssize_t nsent = 0;
+                                    size_t nbytes = jack_ringbuffer_peek(client->send_queue, tmp, sizeof tmp);
+                                    nsent = send(i, tmp, nbytes, MSG_NOSIGNAL);
+                                    if (nsent > 0) {
+                                        // update read pointer
+                                        jack_ringbuffer_read_advance(client->send_queue, nsent);
+                                        fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%d\n", client, i, nsent);
+                                    } else if (nsent < 0) {
+                                        // send failed, can not continue
+                                        fprintf(stderr, "Error sending stuff obj=%p fd=%d close() now\n", client, i);
+                                        /* TODO cleanup and close up */
+                                    } else {
+                                        // no data available was sent out, although the queue was not empty, very strange
+                                        fprintf(stderr, "no data sent obj=%p fd=%d\n", client, i);
+                                    }
+
+                                }
                             }
 
                             //                            for (j = 0; j <= fdmax; j++) {

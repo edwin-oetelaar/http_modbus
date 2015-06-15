@@ -5,6 +5,8 @@
                    displayName="Header Files"
                    projectFiles="true">
       <itemPath>http_machine.h</itemPath>
+      <itemPath>my_queue.h</itemPath>
+      <itemPath>ringbuffer.h</itemPath>
       <itemPath>server.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ResourceFiles"
@@ -17,6 +19,7 @@
       <itemPath>http_machine.c</itemPath>
       <itemPath>main.c</itemPath>
       <itemPath>not_used.c.c</itemPath>
+      <itemPath>ringbuffer.c</itemPath>
       <itemPath>server.c</itemPath>
     </logicalFolder>
     <logicalFolder name="TestFiles"
@@ -50,7 +53,13 @@
       </item>
       <item path="main.c" ex="false" tool="0" flavor2="0">
       </item>
+      <item path="my_queue.h" ex="false" tool="3" flavor2="0">
+      </item>
       <item path="not_used.c.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="ringbuffer.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="ringbuffer.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="server.c" ex="false" tool="0" flavor2="0">
       </item>
@@ -83,7 +92,13 @@
       </item>
       <item path="main.c" ex="false" tool="0" flavor2="0">
       </item>
+      <item path="my_queue.h" ex="false" tool="3" flavor2="0">
+      </item>
       <item path="not_used.c.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="ringbuffer.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="ringbuffer.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="server.c" ex="false" tool="0" flavor2="0">
       </item>
@@ -120,7 +135,13 @@
       </item>
       <item path="main.c" ex="false" tool="0" flavor2="0">
       </item>
+      <item path="my_queue.h" ex="false" tool="3" flavor2="0">
+      </item>
       <item path="not_used.c.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="ringbuffer.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="ringbuffer.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="server.c" ex="false" tool="0" flavor2="0">
       </item>

@@ -38,6 +38,7 @@ OBJECTFILES= \
 	${OBJECTDIR}/http_machine.o \
 	${OBJECTDIR}/main.o \
 	${OBJECTDIR}/not_used.c.o \
+	${OBJECTDIR}/ringbuffer.o \
 	${OBJECTDIR}/server.o
 
 
@@ -79,6 +80,11 @@ ${OBJECTDIR}/not_used.c.o: not_used.c.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/not_used.c.o not_used.c.c
+
+${OBJECTDIR}/ringbuffer.o: ringbuffer.c 
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/ringbuffer.o ringbuffer.c
 
 ${OBJECTDIR}/server.o: server.c 
 	${MKDIR} -p ${OBJECTDIR}
