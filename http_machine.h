@@ -18,7 +18,7 @@ extern "C" {
         struct timeval buffer_timestamp; /* buffer timestamping gettimeofday */
         struct timeval idle_timestamp; /* updated timestamp after every recv of data */
         struct timeval connection_timestamp; /* moment of connection */
-        jack_ringbuffer_t recv_queue; /* the input buffer, dynamic alloc */
+        jack_ringbuffer_t *recv_queue; /* the input buffer, dynamic alloc */
         // char recv_buffer[512]; /* filled direct by recv  ZERO COPY */
         // char send_buffer[512]; /* used directly by send  ZERO COPY */
         jack_ringbuffer_t *send_queue; /* dynamic allocated */

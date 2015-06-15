@@ -125,7 +125,7 @@ int run_server(void) {
                     // call that machine, buflen=0 and hangup=0
                     int smrv = 0;
                     do {
-                        smrv = http_machine_step(m, 0, 0);
+                        smrv = http_machine_step(m, 0);
                     } while (smrv == 1);
                     if (smrv < 0) {
                         /* error or timeout we need to close and cleanup */
@@ -180,7 +180,13 @@ int run_server(void) {
                     } else {
                         // handle data from a client
                         http_state_t *client = fd_to_machine_map[i]; /* fd is the index */
-                        ssize_t nbytes = recv(i, client->recv_buffer, sizeof client->recv_buffer, MSG_NOSIGNAL);
+                        char tmp[4096];
+                        int ib = jack_ringbuffer_write_space(client->recv_queue);
+                        /* read upto free buffer size */
+                        int numtoread = ((sizeof tmp) > ib) ? ib : sizeof tmp; 
+                        
+                        ssize_t nbytes = recv(i, tmp, numtoread, MSG_NOSIGNAL);
+      //                  ssize_t nbytes = recv(i, client->recv_buffer, sizeof client->recv_buffer, MSG_NOSIGNAL);
 
                         if (nbytes <= 0) {
                             // got error or connection closed by client
@@ -188,7 +194,7 @@ int run_server(void) {
                                 // connection closed
                                 printf("selectserver: socket %d hung up\n", i);
                                 // signal the state machine, maybe needs to handle this
-                                while (1 == http_machine_step(client, 0, 1)) {
+                                while (1 == http_machine_step(client,  1)) {
                                     fprintf(stderr, "call again\n");
                                 }
                                 // we must clean up always
@@ -196,7 +202,7 @@ int run_server(void) {
                                 // < 0 from recv, error condition
                                 perror("recv");
                                 // we must add cleanup code here TODO
-                                while (1 == http_machine_step(client, 0, 2)) {
+                                while (1 == http_machine_step(client,  2)) {
                                     fprintf(stderr, "call again2\n");
                                 } // error msg to machine
                             }
@@ -213,10 +219,18 @@ int run_server(void) {
                             if (trv == -1) {
                                 perror("gettime problem");
                             }
+                            
+                            /* copy the recv data into the state machine */
+                            int nrv = jack_ringbuffer_write(client->recv_queue,tmp,nbytes);
+                            if (nrv != nbytes) {
+                                fprintf(stderr,"could not fit all data into ring buffer, can not happen. fd=%d obj=%p\n",i,client);
+                                /* close up and cleanup */
+                            }
+                            
                             int smrv = 0;
                             do {
                                 // feed into state machine
-                                smrv = http_machine_step(client, nbytes, 0);
+                                smrv = http_machine_step(client, 0);
                             } while (smrv == 1);
                             // on error cleanup the connection and the statemachine
                             if (smrv < 0) {
