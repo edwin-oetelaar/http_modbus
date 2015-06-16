@@ -39,9 +39,6 @@ int run_server(void) {
     struct sockaddr_storage remoteaddr; // client address
     socklen_t addrlen;
 
-    //char buf[256]; // buffer for client data
-    //int nbytes;
-
     char remoteIP[INET6_ADDRSTRLEN];
 
     int yes = 1; // for setsockopt() SO_REUSEADDR, below
@@ -104,8 +101,9 @@ int run_server(void) {
         read_fds = master; // copy it
 
         struct timeval timeout = {.tv_sec = 1, .tv_usec = 0};
-
+        /* call select() wait for at most 1 second */
         int srv = select(fdmax + 1, &read_fds, NULL, NULL, &timeout);
+        /* check errors */
         if (srv == -1) {
             perror("select");
             exit(4);
@@ -123,10 +121,8 @@ int run_server(void) {
                     // set the timestamp
                     gettimeofday(&m->buffer_timestamp, NULL);
                     // call that machine, buflen=0 and hangup=0
-                    int smrv = 0;
-                    do {
-                        smrv = http_machine_step(m, 0);
-                    } while (smrv == 1);
+                    int smrv = http_machine_step(m, 0);
+
                     if (smrv < 0) {
                         /* error or timeout we need to close and cleanup */
                         // on error always clean up anyway
@@ -181,12 +177,12 @@ int run_server(void) {
                         // handle data from a client
                         http_state_t *client = fd_to_machine_map[i]; /* fd is the index */
                         char tmp[4096];
+                        /* amount of space in recv buffer ? */
                         int ib = jack_ringbuffer_write_space(client->recv_queue);
                         /* read upto free buffer size */
-                        int numtoread = ((sizeof tmp) > ib) ? ib : sizeof tmp; 
-                        
+                        int numtoread = ((sizeof tmp) > ib) ? ib : sizeof tmp;
+                        /* read the bytes from the socket in blocking mode */
                         ssize_t nbytes = recv(i, tmp, numtoread, MSG_NOSIGNAL);
-      //                  ssize_t nbytes = recv(i, client->recv_buffer, sizeof client->recv_buffer, MSG_NOSIGNAL);
 
                         if (nbytes <= 0) {
                             // got error or connection closed by client
@@ -194,17 +190,15 @@ int run_server(void) {
                                 // connection closed
                                 printf("selectserver: socket %d hung up\n", i);
                                 // signal the state machine, maybe needs to handle this
-                                while (1 == http_machine_step(client,  1)) {
-                                    fprintf(stderr, "call again\n");
-                                }
+
+                                http_machine_step(client, 1);
+
                                 // we must clean up always
                             } else {
                                 // < 0 from recv, error condition
                                 perror("recv");
                                 // we must add cleanup code here TODO
-                                while (1 == http_machine_step(client,  2)) {
-                                    fprintf(stderr, "call again2\n");
-                                } // error msg to machine
+                                http_machine_step(client, 2);
                             }
                             // on error always clean up anyway
                             close(i); // bye!
@@ -212,26 +206,25 @@ int run_server(void) {
                             http_machine_deinit(client);
                             free(client);
                             fd_to_machine_map[i] = 0; /* remove ref */
-                            client=NULL;
+                            client = NULL;
                         } else {
                             // we got some data from a client, timestamp the data
                             int trv = gettimeofday(&client->buffer_timestamp, NULL);
                             if (trv == -1) {
                                 perror("gettime problem");
                             }
-                            
+
                             /* copy the recv data into the state machine */
-                            int nrv = jack_ringbuffer_write(client->recv_queue,tmp,nbytes);
+                            int nrv = jack_ringbuffer_write(client->recv_queue, tmp, nbytes);
                             if (nrv != nbytes) {
-                                fprintf(stderr,"could not fit all data into ring buffer, can not happen. fd=%d obj=%p\n",i,client);
+                                fprintf(stderr, "could not fit all data into ring buffer, can not happen. fd=%d obj=%p\n", i, client);
                                 /* close up and cleanup */
                             }
-                            
-                            int smrv = 0;
-                            do {
-                                // feed into state machine
-                                smrv = http_machine_step(client, 0);
-                            } while (smrv == 1);
+
+
+                            // feed into state machine
+                            int smrv = http_machine_step(client, 0);
+
                             // on error cleanup the connection and the statemachine
                             if (smrv < 0) {
                                 /* error, cleanup */
@@ -242,57 +235,63 @@ int run_server(void) {
                                 fd_to_machine_map[i] = 0; /* remove ref */
                                 client = NULL; /* invalidate pointer */
                             } else {
-                                /* Koffie what else ?? all is OK */
-                                /* maybe we need to send stuff out now ?? */
-                                if (jack_ringbuffer_read_space(client->send_queue) > 0) {
-                                    /*
-                                     // where socketfd is the socket you want to make non-blocking
-int status = fcntl(socketfd, F_SETFL, fcntl(socketfd, F_GETFL, 0) | O_NONBLOCK);
+                                /* Koffie what else ?? 
+                                 * all is OK */
 
-if (status == -1){
-  perror("calling fcntl");
-  // handle the error.  By the way, I've never seen fcntl fail in this way
-}
-                                     
-                                     */
-                                    /* copy the data from the queue without moving the read pointer, since we do not know if sending will work */
-                                    char tmp[1024];
-                                    ssize_t nsent = 0;
-                                    size_t nbytes = jack_ringbuffer_peek(client->send_queue, tmp, sizeof tmp);
-                                    nsent = send(i, tmp, nbytes, MSG_NOSIGNAL);
-                                    if (nsent > 0) {
-                                        // update read pointer
-                                        jack_ringbuffer_read_advance(client->send_queue, nsent);
-                                        fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%d\n", client, i, nsent);
-                                    } else if (nsent < 0) {
-                                        // send failed, can not continue
-                                        fprintf(stderr, "Error sending stuff obj=%p fd=%d close() now\n", client, i);
-                                        /* TODO cleanup and close up */
-                                    } else {
-                                        // no data available was sent out, although the queue was not empty, very strange
-                                        fprintf(stderr, "no data sent obj=%p fd=%d\n", client, i);
-                                    }
-
-                                }
                             }
-
-                            //                            for (j = 0; j <= fdmax; j++) {
-                            //                                // send to everyone!
-                            //                                if (FD_ISSET(j, &master)) {
-                            //                                    // except the listener and ourselves
-                            //                                    if (j != listener && j != i) {
-                            //                                        if (send(j, buf, nbytes, 0) == -1) {
-                            //                                            perror("send");
-                            //                                        }
-                            //                                    }
-                            //                                }
-                            //                            }
                         }
                     }
-                } // END handle data from client
-            } // END got new incoming connection
-        } // END looping through file descriptors
-    } // END for(;;)--and you thought it would never end!
+                } // fd is set
+            } // end for fds
+        }
+
+        /* loop over every machine and check transmit buffer */
+        int j;
+        for (j = 0; j <= fdmax; j++) {
+            // send to everyone!
+            if (FD_ISSET(j, &master)) {
+                // except the listener
+                if (j != listener) {
+                    http_state_t *mm = fd_to_machine_map[j];
+                    if (mm != NULL) {
+                        /* maybe we need to send stuff out now ?? */
+                        if (jack_ringbuffer_read_space(mm->send_queue) > 0) {
+                            /*
+                             // where socketfd is the socket you want to make non-blocking
+                            int status = fcntl(socketfd, F_SETFL, fcntl(socketfd, F_GETFL, 0) | O_NONBLOCK);
+
+                            if (status == -1){
+                            perror("calling fcntl");
+                            // handle the error.  By the way, I've never seen fcntl fail in this way
+                            }
+                                     
+                             */
+                            /* copy the data from the queue without moving the read pointer, since we do not know if sending will work */
+                            char tmp[1024];
+                            ssize_t nsent = 0;
+                            size_t nbytes = jack_ringbuffer_peek(mm->send_queue, tmp, sizeof tmp);
+                            nsent = send(i, tmp, nbytes, MSG_NOSIGNAL);
+                            if (nsent > 0) {
+                                // update read pointer
+                                jack_ringbuffer_read_advance(mm->send_queue, nsent);
+                                fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%d\n", mm, i, nsent);
+                            } else if (nsent < 0) {
+                                // send failed, can not continue
+                                fprintf(stderr, "Error sending stuff obj=%p fd=%d close() now\n", mm, i);
+                                /* TODO cleanup and close up */
+                            } else {
+                                // no data available was sent out, although the queue was not empty, very strange
+                                fprintf(stderr, "no data sent obj=%p fd=%d\n", mm, i);
+                            }
+
+                        }
+                    } else {
+                        fprintf(stderr, "Unexpected NULL object in transmit fd=%d\n", j);
+                    }
+                } // not listener
+            } // if fd is set
+        } // end for fds
+    } // END for(;;)
 
     return 0;
 }

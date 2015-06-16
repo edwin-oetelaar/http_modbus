@@ -19,25 +19,21 @@ extern "C" {
         struct timeval idle_timestamp; /* updated timestamp after every recv of data */
         struct timeval connection_timestamp; /* moment of connection */
         jack_ringbuffer_t *recv_queue; /* the input buffer, dynamic alloc */
-        // char recv_buffer[512]; /* filled direct by recv  ZERO COPY */
-        // char send_buffer[512]; /* used directly by send  ZERO COPY */
         jack_ringbuffer_t *send_queue; /* dynamic allocated */
         int line_buffer_index; /* index offset in de linebuffer */
         char line_buffer[512]; /* line buffer temp */
-        // char header_line_buffer[512]; /* buffer for one header line */s
-        // int header_line_buffer_index; /* index offset in header line buffer */
         char VERB[16]; /* VERB, GET PUT DELETE POST etc */
         char URI[512]; /*  mag 32k zijn volgens spec */
         char HTTPVER[16]; /* version HTTP/1.0 or HTTP/1.1 */
         char HOST[512]; /* Host from headers, zeker groot genoeg */
         char BODY[512]; /* body van de POST message komt hier */
-
     } http_state_t;
 
 
     int http_machine_init(http_state_t *self, int fd);
     int http_machine_deinit(http_state_t *self);
     int http_machine_step(http_state_t *self, int hangup);
+    int http_machine_step_single_byte(http_state_t *self, char c, int control_flag); /* parse input chars */
 
 #ifdef	__cplusplus
 }
