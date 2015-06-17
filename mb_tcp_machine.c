@@ -1,20 +1,21 @@
+
 /* copyright 2015 etc Edwin van den Oetelaar
  * all rights reserved
  * written from scratch, no cut and paste
  */
 
-#include "http_machine.h"
+#include "mb_tcp_machine.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
 
-static const int verbose = 0;
+const int verbose = 0;
 
 /* extra debug output */
 
-int http_m_init(http_state_t *self, int fd) {
+int mb_m_init(mb_state_t *self, int fd) {
     self->current_state = 0;
-    self->machine_type = http_machine_magic;
+    self->machine_type = mb_machine_magic;
     self->deferred_cleanup = 0;
     self->my_fd = fd;
     self->send_queue = jack_ringbuffer_create(4096); /* 1 page buffer */
@@ -24,7 +25,7 @@ int http_m_init(http_state_t *self, int fd) {
     return 0;
 }
 
-int http_m_reset(http_state_t *self) {
+int mb_m_reset(mb_state_t *self) {
     self->current_state = 0;
     self->deferred_cleanup = 0;
     self->content_body_index = 0;
@@ -35,7 +36,7 @@ int http_m_reset(http_state_t *self) {
     return 0;
 }
 
-int http_m_deinit(http_state_t *self) {
+int mb_m_deinit(mb_state_t *self) {
     // clear memory etc
     jack_ringbuffer_free(self->recv_queue);
     jack_ringbuffer_free(self->send_queue);
@@ -43,7 +44,7 @@ int http_m_deinit(http_state_t *self) {
     return 0;
 }
 
-int is_uri_char(uint8_t c) {
+static int is_uri_char(uint8_t c) {
     /* return 1 on success, 0 on fail */
     if (c >= 'A' && c <= 'Z') return 1;
     if (c >= 'a' && c <= 'z') return 1;
@@ -59,7 +60,7 @@ int is_uri_char(uint8_t c) {
     return 0;
 }
 
-int is_httpver_char(uint8_t c) {
+static int is_mbver_char(uint8_t c) {
     if (c == 'H' || c == 'T' || c == 'P' || c == '/' ||
         c == '0' || c == '1' || c == '.')
         return 1;
@@ -68,13 +69,13 @@ int is_httpver_char(uint8_t c) {
 
 }
 
-int is_header_char(uint8_t c) {
+static int is_header_char(uint8_t c) {
     /* accept any char for now, except EOL */
     if (c == '\r' || c == '\n') return 0;
     return 1;
 }
 
-int http_m_handle_header_line(http_state_t *self, const char *buf, int buflen) {
+static int mb_m_handle_header_line(mb_state_t *self, const char *buf, int buflen) {
     fprintf(stderr, "handle line '%s' len=%d\n", buf, buflen);
 
 
@@ -120,7 +121,7 @@ int http_m_handle_header_line(http_state_t *self, const char *buf, int buflen) {
     return 0; /* no problem read next header*/
 }
 
-int http_verb_to_code(const char *verb) {
+static int mb_verb_to_code(const char *verb) {
     if (strcasecmp(verb, "GET") == 0) return 1;
     if (strcasecmp(verb, "POST") == 0) return 2;
     if (strcasecmp(verb, "PUT") == 0) return 3;
@@ -128,7 +129,7 @@ int http_verb_to_code(const char *verb) {
     return 0; /* unknown verb */
 }
 
-int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_flag) {
+static int mb_m_step_single_byte(mb_state_t *self, const uint8_t c, int control_flag) {
     /* standard FSM
      * based on input c take one step based on the current state
      * no way to do multiple state-transitions based on one input char
@@ -164,7 +165,7 @@ int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_fla
                 strcpy(self->VERB, self->line_buffer);
                 self->line_buffer_index = 0; /* start at begin of buffer again for URI */
                 fprintf(stderr, "VERB complete '%s'\n", self->VERB);
-                self->VERB_code = http_verb_to_code(self->VERB);
+                self->VERB_code = mb_verb_to_code(self->VERB);
                 if (self->VERB_code == 0) {
                     fprintf(stderr, "protocol error, unknown verb %s\n", self->VERB);
                     return -1; /* unknown verb protocol error */
@@ -201,11 +202,11 @@ int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_fla
             }
 
             break;
-
+            
         case 3:
             if (self->line_buffer_index >= sizeof self->HTTPVER) {
                 return -1; /* too long is protocol error  */
-            } else if (is_httpver_char(c)) {
+            } else if (is_mbver_char(c)) {
                 self->line_buffer[self->line_buffer_index] = c;
                 self->line_buffer_index++; /* next char in line */
                 ns = 3;
@@ -254,7 +255,7 @@ int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_fla
         case 6:
             /* read LF after header line */
             if (c == '\n') {
-                int rv = http_m_handle_header_line(self, self->line_buffer, self->line_buffer_index);
+                int rv = mb_m_handle_header_line(self, self->line_buffer, self->line_buffer_index);
                 if (rv < 0) {
                     /* invalid header protocol error */
                     fprintf(stderr, "invalid header line : %s\n", self->line_buffer);
@@ -337,7 +338,7 @@ int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_fla
     return 0;
 }
 
-int http_m_step(http_state_t *self, int event_type) {
+int mb_m_step(mb_state_t *self, int event_type) {
     /* self, event_type flag (when peer closed==1 network error==2, timer==0) */
     /* if buflen == 0 then we have no data but just timer event, timestamp in machine->timestamp */
     /* the machine, uses timestamp to handle timeouts */
@@ -367,7 +368,7 @@ int http_m_step(http_state_t *self, int event_type) {
     while (nn > 0) {
 
         /* push into state machine */
-        int rv = http_m_step_single_byte(self, c, 0);
+        int rv = mb_m_step_single_byte(self, c, 0);
         /* check return values for next actions */
         if (rv < 0) {
             /* protocol error */
@@ -377,11 +378,11 @@ int http_m_step(http_state_t *self, int event_type) {
             jack_ringbuffer_write(self->send_queue, tmp, sizeof tmp);
             if (self->keep_alive == 0) {
                 self->deferred_cleanup = 1; /* write buffer before self destruct */
-                http_m_reset(self);
+                mb_m_reset(self);
                 return -1;
             } else {
                 /* prepare http machine for new bytes, reset state.. */
-                http_m_reset(self);
+                mb_m_reset(self);
             }
         } else if (rv == 2) {
             /* complete POST received, start handling and send answer  */

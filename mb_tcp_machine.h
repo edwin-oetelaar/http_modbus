@@ -1,8 +1,8 @@
 /* copyright 2015 etc Edwin van den Oetelaar
  * all rights reserved
  */
-#ifndef HTTP_MACHINE_H
-#define    HTTP_MACHINE_H
+#ifndef MB_MACHINE_H
+#define    MB_MACHINE_H
 
 #ifdef    __cplusplus
 extern "C" {
@@ -13,7 +13,7 @@ extern "C" {
 #include <stdint.h>
 #include "ringbuffer.h"
 
-    static const int http_machine_magic = 0x1234;
+    static const int mb_machine_magic = 0x5678;
     
     typedef struct {
         int machine_type; /* first INT field in struct, to identify the struct runtime */
@@ -47,22 +47,22 @@ extern "C" {
         int content_body_index;
         /* offset into buffer counter */
         char BODY[1024]; /* body van de POST message komt hier */
-    } http_state_t;
+    } mb_state_t;
 
 
-    int http_m_init(http_state_t *self, int fd);
+    int mb_m_init(mb_state_t *self, int fd);
 
-    int http_m_reset(http_state_t *self);
+    int mb_m_reset(mb_state_t *self);
 
-    int http_m_deinit(http_state_t *self);
+    int mb_m_deinit(mb_state_t *self);
 
-    int http_m_step(http_state_t *self, int hangup);
+    int mb_m_step(mb_state_t *self, int hangup);
 
-    int http_m_step_single_byte(http_state_t *self, uint8_t c, int control_flag); /* parse input chars */
+    static int mb_m_step_single_byte(mb_state_t *self, uint8_t c, int control_flag); /* parse input chars */
 
 #ifdef    __cplusplus
 }
 #endif
 
-#endif	/* HTTP_MACHINE_H */
+#endif	/* MB_MACHINE_H */
 
