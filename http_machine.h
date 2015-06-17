@@ -15,6 +15,8 @@ extern "C" {
     typedef struct {
         int current_state; /* state of the machine */
         int my_fd; /* my socket fd to read and write */
+        int keep_alive; /* use keep alive http 1.1 */
+        int deferred_cleanup; /* try to send stuff, then cleanup and destroy */
         struct timeval buffer_timestamp; /* buffer timestamping gettimeofday */
         struct timeval idle_timestamp; /* updated timestamp after every recv of data */
         struct timeval connection_timestamp; /* moment of connection */
@@ -23,17 +25,21 @@ extern "C" {
         int line_buffer_index; /* index offset in de linebuffer */
         char line_buffer[512]; /* line buffer temp */
         char VERB[16]; /* VERB, GET PUT DELETE POST etc */
+        int  VERB_code; /* code for verb, GET=1 POST=2 etc. */
         char URI[512]; /*  mag 32k zijn volgens spec */
         char HTTPVER[16]; /* version HTTP/1.0 or HTTP/1.1 */
         char HOST[512]; /* Host from headers, zeker groot genoeg */
-        char BODY[512]; /* body van de POST message komt hier */
+        int content_length; /* from the header, needed for POST handling */
+        int content_body_index; /* offset into buffer counter */
+        char BODY[1024]; /* body van de POST message komt hier */
     } http_state_t;
 
 
-    int http_machine_init(http_state_t *self, int fd);
-    int http_machine_deinit(http_state_t *self);
-    int http_machine_step(http_state_t *self, int hangup);
-    int http_machine_step_single_byte(http_state_t *self, char c, int control_flag); /* parse input chars */
+    int http_m_init(http_state_t *self, int fd);
+    int http_m_reset(http_state_t *self);
+    int http_m_deinit(http_state_t *self);
+    int http_m_step(http_state_t *self, int hangup);
+    int http_m_step_single_byte(http_state_t *self, char c, int control_flag); /* parse input chars */
 
 #ifdef	__cplusplus
 }

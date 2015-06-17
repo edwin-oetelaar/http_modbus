@@ -12,8 +12,11 @@
 #include <ctype.h>
 #include <string.h>
 
-int http_machine_init(http_state_t *self, int fd) {
+const int verbose = 0; /* extra debug output */
+
+int http_m_init(http_state_t *self, int fd) {
     self->current_state = 0;
+    self->deferred_cleanup = 0;
     self->my_fd = fd;
     self->send_queue = jack_ringbuffer_create(4096); /* 1 page buffer */
     self->recv_queue = jack_ringbuffer_create(4096); /* 1 page buffer */
@@ -22,10 +25,21 @@ int http_machine_init(http_state_t *self, int fd) {
     return 0;
 }
 
-int http_machine_deinit(http_state_t *self) {
+int http_m_reset(http_state_t *self) {
+    self->current_state = 0;
+    self->deferred_cleanup = 0;
+    self->content_body_index = 0;
+    self->line_buffer_index = 0;
+    self->content_length = 0;
+    self->VERB_code = 0;
+    fprintf(stderr, "reset state in between http/1.1\n");
+    return 0;
+}
+
+int http_m_deinit(http_state_t *self) {
     // clear memory etc
-    free(self->recv_queue);
-    free(self->send_queue);
+    jack_ringbuffer_free(self->recv_queue);
+    jack_ringbuffer_free(self->send_queue);
     fprintf(stderr, "machine %p deinit done\n", self);
     return 0;
 }
@@ -55,40 +69,72 @@ int is_httpver_char(uint8_t c) {
 }
 
 int is_header_char(uint8_t c) {
-    /* accept any char for now, execpt EOL */
+    /* accept any char for now, except EOL */
     if (c == '\r' || c == '\n') return 0;
     return 1;
 }
 
-int handle_header_line(http_state_t *self, char *buf, int buflen) {
+int http_m_handle_header_line(http_state_t *self, const char *buf, int buflen) {
     fprintf(stderr, "handle line '%s' len=%d\n", buf, buflen);
+
 
     // return -1 on bogus input
     // 0 on ok
     // 1 on end of headers
 
+
     if (buflen == 0) {
         fprintf(stderr, "end of headers\n");
         return 1; /* headers end */
     }
+
+    char tmp[512]; /* buffer on the stack */
+    if (buflen >= sizeof tmp) {
+        fprintf(stderr, "header line too long %d ignored\n", buflen);
+        return 0;
+    }
+
+    /* convert to lower case copy */
+    int i;
+    for (i = 0; i < buflen; i++) {
+        tmp[i] = tolower(buf[i]);
+    }
+    tmp[i] = 0; /* end string, todo CHECK 511 and 512 length input */
+
+    /* compare the strings */
+
+    if (verbose) fprintf(stderr, "lower case '%s'\n", tmp);
+
+    int n = 0;
+    int nc = sscanf(tmp, "content-length: %d", &n);
+    if (nc == 1) {
+        fprintf(stderr, "content-length found : %d\n", n);
+        self->content_length = n;
+    } else if (!strcmp(tmp, "connection: keep-alive")) {
+        fprintf(stderr, "Connection keep alive detected\n");
+        self->keep_alive = 1;
+    } else {
+        fprintf(stderr, "no match\n");
+    }
+
     return 0; /* no problem read next header*/
 }
 
-int is_known_http_verb(const char *verb) {
-    if (strcmp(verb, "GET") == 0) return 1;
-    if (strcmp(verb, "POST") == 0) return 1;
-    if (strcmp(verb, "PUT") == 0) return 1;
-    if (strcmp(verb, "DELETE") == 0) return 1;
+int http_verb_to_code(const char *verb) {
+    if (strcasecmp(verb, "GET") == 0) return 1;
+    if (strcasecmp(verb, "POST") == 0) return 2;
+    if (strcasecmp(verb, "PUT") == 0) return 3;
+    if (strcasecmp(verb, "DELETE") == 0) return 4;
     return 0; /* unknown verb */
 }
 
-int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) {
+int http_m_step_single_byte(http_state_t *self, const char c, int control_flag) {
     /* standard FSM
      * based on input c take one step based on the current state
      * no way to do multiple state-transitions based on one input char
      * if control_flag == 1 : reset the machine before processing char
      */
-    char tmp[] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nHello everybody";
+
     if (control_flag == 1) {
         /* reset */
         fprintf(stderr, "reset http_statemachine to state==0\n");
@@ -96,9 +142,10 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
     }
 
     int ns = 0;
-    uint8_t cc = isprint(c) ? c : ' ';
-    fprintf(stderr, "http_machine_step_input working on state=%d c=%c hex=0x%2.2x\n", self->current_state, cc, c);
-
+    if (verbose) {
+        uint8_t cc = isprint(c) ? c : ' ';
+        fprintf(stderr, "http_machine_step_input working on state=%d c=%c hex=0x%2.2x\n", self->current_state, cc, c);
+    }
     /* choose action based on current state */
     switch (self->current_state) {
 
@@ -106,7 +153,7 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
             if (!(self->line_buffer_index < sizeof self->VERB)) {
                 /* VERB too long protocol error */
                 fprintf(stderr, "http verb too long, protocol error\n");
-                return -1; // ns = 1000;
+                return -1;
             } else if (c >= 'A' && c <= 'Z') {
                 /* normal char seen */
                 self->line_buffer[self->line_buffer_index] = c;
@@ -117,16 +164,16 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
                 strcpy(self->VERB, self->line_buffer);
                 self->line_buffer_index = 0; /* start at begin of buffer again for URI */
                 fprintf(stderr, "VERB complete '%s'\n", self->VERB);
-
-                if (is_known_http_verb(self->VERB) == 0) {
+                self->VERB_code = http_verb_to_code(self->VERB);
+                if (self->VERB_code == 0) {
                     fprintf(stderr, "protocol error, unknown verb %s\n", self->VERB);
-                    return -1; // ns = 1000; /* unknown verb protocol error */
+                    return -1; /* unknown verb protocol error */
                 } else {
                     ns = 2; /* VERB complete go on to find URI */
                 }
             } else {
-                /* verb not finished, error in protocol */
-                return -1; // ns = 1000; /* protocol error seen */
+                /* verb not finished, invalid char,  error in protocol */
+                return -1; /* protocol error seen */
             }
 
             break;
@@ -135,8 +182,8 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
             /* copy the URI part of the first line */
             /* URI ends with a space */
             if (!(self->line_buffer_index < sizeof self->URI)) {
-                /* no cnt++ here */
-                return -1; // ns = 1000; /* too long is protocol error  */
+
+                return -1; /* too long is protocol error  */
             } else if (is_uri_char(c)) {
                 self->line_buffer[self->line_buffer_index] = c;
                 self->line_buffer_index++; /* next char in line */
@@ -150,14 +197,14 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
                 ns = 3; /* on to the protocol version stuff*/
             } else {
                 fprintf(stderr, "WTF happened invalid URI char '%2x'\n", c);
-                return -1; // ns = 1000; /* protocol error */
+                return -1; /* protocol error */
             }
 
             break;
 
         case 3:
             if (!(self->line_buffer_index < sizeof self->HTTPVER)) {
-                return -1; // ns = 1000; /* too long is protocol error  */
+                return -1; /* too long is protocol error  */
             } else if (is_httpver_char(c)) {
                 self->line_buffer[self->line_buffer_index] = c;
                 self->line_buffer_index++; /* next char in line */
@@ -172,7 +219,7 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
 
             } else {
                 fprintf(stderr, "WTF happened invalid HTTP VERSION char '%2x'\n", c);
-                return -1; // ns = 1000; /* protocol error */
+                return -1; /* protocol error */
             }
             break;
 
@@ -181,14 +228,14 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
                 /* we have a complete line and can now handle header lines */
                 ns = 5; /* handle header line */
             } else {
-                return -1; // ns = 1000; /* unexpected char, is protocol error */
+                return -1; /* unexpected char, is protocol error */
             }
             break;
 
         case 5:
             /* read upto a CR into line_buffer a header line */
             if (!(self->line_buffer_index < sizeof self->line_buffer)) {
-                return -1; // ns = 1000; /* too long is protocol error  */
+                return -1; /* too long is protocol error  */
             } else if (is_header_char(c)) {
                 /* the byte is a valid byte inside a header line, append to line */
                 self->line_buffer[self->line_buffer_index] = c;
@@ -200,21 +247,45 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
                 ns = 6; /* read closing \n from line */
             } else {
                 fprintf(stderr, "WTF happened invalid header char '%2x'\n", c);
-                return -1; // ns = 1000; /* protocol error */
+                return -1; /* protocol error */
             }
             break;
 
         case 6:
             /* read LF after header line */
             if (c == '\n') {
-                int rv = handle_header_line(self, self->line_buffer, self->line_buffer_index);
+                int rv = http_m_handle_header_line(self, self->line_buffer, self->line_buffer_index);
                 if (rv < 0) {
                     /* invalid header protocol error */
                     fprintf(stderr, "invalid header line : %s\n", self->line_buffer);
-                    return -1; // ns = 1000;
+                    return -1;
                 } else if (rv == 1) {
-                    // empty header, ends the header
-                    ns = 20;
+                    /* empty header, ends the header */
+                    /* do we need more data before we are done ? 
+                     * if VERB is GET => no 
+                     */
+                    if (self->VERB_code == 1) {
+                        return 1; /* GET is done */
+                    }
+                    if (self->VERB_code == 2) {
+                        /* POST, now read the body upto content-length if exists */
+                        /* ok, het kan dus zijn dan in http/1.1 er geen content-length is
+                         * maar hoe weet ik dan wanneer de body eindigt?? 
+                         * zie https://issues.apache.org/jira/browse/TS-2902 
+                         * ik moet een lengte hebben anders werkt het niet */
+                        if (self->content_length > 0) {
+                            self->content_body_index = 0; /* make sure it is sane */
+                            ns = 20;
+                        } else {
+                            /* post met 0 lengte, is valid volgens de spec, we zijn klaar */
+                            return 2; /* POST is done */
+                        }
+
+                    } else if (self->VERB_code == 3) {
+                        /* handle PUT */
+                    } else if (self->VERB_code == 4) {
+                        /* handle DELETE */
+                    }
                 } else {
                     fprintf(stderr, "header line ok : '%s'\n", self->line_buffer);
                     self->line_buffer_index = 0; /* start at begin of buffer again */
@@ -223,34 +294,36 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
 
             } else {
                 fprintf(stderr, "unexpected char %2x protocol error\n", c);
-                return -1; // ns = 1000;
+                return -1;
             }
             break;
 
         case 20:
-            /* read body of http message if any is expected */
-            /* should respect the Content-Length header value */
-            if (!strcmp(self->VERB, "GET")) {
-                fprintf(stderr, "expecting no body, send response now\n");
-                ns = 21;
+            /* quick check before reception of body */
+            if (self->content_length > sizeof self->BODY) {
+                /* sanity check, client wants to send TOO large body */
+                fprintf(stderr, "Client wants to send TOO large body len=%d\n", self->content_length);
+                return -1;
+            }
+
+            if (self->content_body_index < sizeof self->BODY) {
+                /* range check */
+                self->BODY[self->content_body_index] = c;
+                self->content_body_index++;
+
+                if ((self->content_length - self->content_body_index) > 0) {
+                    /* more data expected */
+                    ns = 20;
+                } else {
+                    /* we are done */
+                    return 2; /* the POST is done */
+                }
             } else {
-                ns = 20;
+                /* overflow */
+                fprintf(stderr, "post does not fit in buffer");
+                return -1; /* protocol error */
             }
             break;
-
-        case 21:
-        {
-
-            size_t n = jack_ringbuffer_write(self->send_queue, tmp, sizeof tmp);
-            fprintf(stderr, "pushed %d into queue\n", n);
-            ns = 21;
-        }
-            break;
-
-            //        case 1000:
-            //            /* cleanup and close up */
-            //            return -1; // clean exit close in main loop
-            //            break;
 
         default:
             fprintf(stderr, "Can not happend, unhandled state %d\n", self->current_state);
@@ -264,13 +337,13 @@ int http_machine_step_single_byte(http_state_t *self, char c, int control_flag) 
     return 0;
 }
 
-int http_machine_step(http_state_t *self, int event_type) {
+int http_m_step(http_state_t *self, int event_type) {
     /* self, event_type flag (when peer closed==1 network error==2, timer==0) */
     /* if buflen == 0 then we have no data but just timer event, timestamp in machine->timestamp */
     /* the machine, uses timestamp to handle timeouts */
     /* return 0 on success handling buffer or timeout event */
     /* return negative value on timeouts or client hangup (-1,-2,-3) , or protocol error (-100,-101, etc) */
-    
+
 
     /* we get a buffer of size 0 (timer or error)  or a buffer of some size.. */
     /* we must process the whole buffer here, we can not leave stuff unprocessed
@@ -282,20 +355,37 @@ int http_machine_step(http_state_t *self, int event_type) {
     char c = 0; // work on this  
 
     // enum states_t  { initial_s, verb_s, uri_s, httpver_s,  };
-
+    char tmp[] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 15\r\n\r\nHello everybody";
     size_t nn = jack_ringbuffer_read(self->recv_queue, &c, 1);
+
+    if (nn > 0) {
+        /* we reset timeout after every reception */
+        /* if we idle too long it still times out */
+        self->idle_timestamp = self->buffer_timestamp;
+    }
+
     while (nn > 0) {
 
         /* push into state machine */
-        int rv = http_machine_step_single_byte(self, c, 0);
+        int rv = http_m_step_single_byte(self, c, 0);
         /* check return values for next actions */
         if (rv < 0) {
             /* protocol error */
             return -1; /* mainloop must close() connection */
         } else if (rv == 1) {
             /* complete GET request received. handle it and start sending answer now */
+            jack_ringbuffer_write(self->send_queue, tmp, sizeof tmp);
+            if (self->keep_alive == 0) {
+                self->deferred_cleanup = 1; /* write buffer before self destruct */
+                http_m_reset(self);
+                return -1;
+            } else {
+                /* prepare http machine for new bytes, reset state.. */
+                http_m_reset(self);
+            }
         } else if (rv == 2) {
             /* complete POST received, start handling and send answer  */
+            jack_ringbuffer_write(self->send_queue, tmp, sizeof tmp);
         } else if (rv == 3) {
             /* PUT request */
         } else if (rv == 4) {
@@ -307,9 +397,7 @@ int http_machine_step(http_state_t *self, int event_type) {
         nn = jack_ringbuffer_read(self->recv_queue, &c, 1);
     }
 
-    /* we reset timeout after every reception */
-    /* if we idle too long it still times out */
-    self->idle_timestamp = self->buffer_timestamp;
+
 
     if (event_type == 0) {
         /* two ways to timeout, on idle timeout (data already received)  and on connection_timestamp */
