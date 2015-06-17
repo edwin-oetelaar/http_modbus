@@ -4,11 +4,7 @@
  */
 
 #include "http_machine.h"
-#include "ringbuffer.h"
-#include <stdlib.h>
-#include <stddef.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <ctype.h>
 #include <string.h>
 
@@ -131,7 +127,7 @@ int http_verb_to_code(const char *verb) {
     return 0; /* unknown verb */
 }
 
-int http_m_step_single_byte(http_state_t *self, const char c, int control_flag) {
+int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_flag) {
     /* standard FSM
      * based on input c take one step based on the current state
      * no way to do multiple state-transitions based on one input char
@@ -153,7 +149,7 @@ int http_m_step_single_byte(http_state_t *self, const char c, int control_flag) 
     switch (self->current_state) {
 
         case 0:
-            if (!(self->line_buffer_index < sizeof self->VERB)) {
+            if (self->line_buffer_index >= sizeof self->VERB) {
                 /* VERB too long protocol error */
                 fprintf(stderr, "http verb too long, protocol error\n");
                 return -1;
@@ -184,7 +180,7 @@ int http_m_step_single_byte(http_state_t *self, const char c, int control_flag) 
         case 2:
             /* copy the URI part of the first line */
             /* URI ends with a space */
-            if (!(self->line_buffer_index < sizeof self->URI)) {
+            if (self->line_buffer_index >= sizeof self->URI) {
 
                 return -1; /* too long is protocol error  */
             } else if (is_uri_char(c)) {
@@ -206,7 +202,7 @@ int http_m_step_single_byte(http_state_t *self, const char c, int control_flag) 
             break;
 
         case 3:
-            if (!(self->line_buffer_index < sizeof self->HTTPVER)) {
+            if (self->line_buffer_index >= sizeof self->HTTPVER) {
                 return -1; /* too long is protocol error  */
             } else if (is_httpver_char(c)) {
                 self->line_buffer[self->line_buffer_index] = c;
@@ -355,11 +351,11 @@ int http_m_step(http_state_t *self, int event_type) {
 
     //int ns = 0; /* next state */
     /* get the byte */
-    char c = 0; // work on this  
+    uint8_t c = 0; // work on this
 
     // enum states_t  { initial_s, verb_s, uri_s, httpver_s,  };
     char tmp[] = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 15\r\n\r\nHello everybody";
-    size_t nn = jack_ringbuffer_read(self->recv_queue, &c, 1);
+    size_t nn = jack_ringbuffer_read(self->recv_queue, (char *) &c, 1);
 
     if (nn > 0) {
         /* we reset timeout after every reception */
@@ -397,7 +393,7 @@ int http_m_step(http_state_t *self, int event_type) {
             /* nothing to say, all is ok, I need more bytes */
         }
         /* next byte from queue */
-        nn = jack_ringbuffer_read(self->recv_queue, &c, 1);
+        nn = jack_ringbuffer_read(self->recv_queue, (char *) &c, 1);
     }
 
 
