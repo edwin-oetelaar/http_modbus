@@ -307,3 +307,21 @@ int run_server(void) {
 
     return 0;
 }
+
+
+/*
+ * speudo code
+ * 
+ * list of http connections
+ * list of modbus connections
+ * 
+ * bind to port
+ * listen on port
+ * while (1) {
+ *   accept connections (http)
+ *   push into http_m statemachine
+ *   
+ * 
+ * if message needs modbus request
+ * 
+ */
