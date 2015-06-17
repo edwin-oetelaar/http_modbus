@@ -4,13 +4,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
 #include <unistd.h>
 #include <inttypes.h>
-#include "server.h"
+#include <arpa/inet.h>
 
 /*
  * 
@@ -197,28 +196,32 @@ int connect_to_host(const char *host, const char *port) {
         }
     }
 
-cleanup:
+    cleanup:
 
     freeaddrinfo(res);
     return rv; /* sockfd or error code */
 }
 
 char request[] = {
-    0x00, 0x01, // transaction id dit is nummer one
-    0x00, 0x00, // protocol id 
-    0x00, 0x06, // length 6 bytes
-    0x00, //unit id 
+        0x00, 0x01, // transaction id dit is nummer one
+        0x00, 0x00, // protocol id
+        0x00, 0x06, // length 6 bytes
+        0x00, //unit id
 
-    0x04, //function code read registers
-    0x40, 0x00, //refernce number==register number 16384
-    0x00, 0x09 //word count to read starting at register number
+        0x04, //function code read registers
+        0x40, 0x00, //refernce number==register number 16384
+        0x00, 0x09 //word count to read starting at register number
 
 };
 
-int make_modbus_req(uint8_t *buf, int buflen, uint16_t transaction_id, uint8_t unit_id, uint16_t reg_id, uint16_t reg_count) {
+ssize_t make_modbus_req(uint8_t *buf, int buflen,
+                        uint16_t transaction_id,
+                        uint8_t unit_id,
+                        uint16_t reg_id,
+                        uint16_t reg_count) {
     if (buflen > 12) {
-        buf[0] = (char) (transaction_id & 0xFF00) >> 8;
-        buf[1] = (char) (transaction_id & 0x00FF);
+        buf[0] = (uint8_t) (transaction_id & 0xFF00) >> 8;
+        buf[1] = (uint8_t) (transaction_id & 0x00FF);
         // protocol
         buf[2] = 0;
         buf[3] = 0;
@@ -230,11 +233,11 @@ int make_modbus_req(uint8_t *buf, int buflen, uint16_t transaction_id, uint8_t u
         // function code
         buf[7] = 4;
         // register id
-        buf[8] = (reg_id & 0xFF00) >> 8;
-        buf[9] = (reg_id & 0x00FF);
+        buf[8] = (uint8_t) (reg_id & 0xFF00) >> 8;
+        buf[9] = (uint8_t) (reg_id & 0x00FF);
         // register count
-        buf[10] = (reg_count & 0xFF00) >> 8;
-        buf[11] = (reg_count & 0x00FF);
+        buf[10] = (uint8_t) (reg_count & 0xFF00) >> 8;
+        buf[11] = (uint8_t) (reg_count & 0x00FF);
 
         return 12; // msg length
     } else {
@@ -242,7 +245,7 @@ int make_modbus_req(uint8_t *buf, int buflen, uint16_t transaction_id, uint8_t u
     }
 }
 
-int parse_answer(uint8_t *buf, int buflen) {
+int parse_answer(uint8_t *buf, size_t buflen) {
     if (buflen == 27) {
         /*  response from the TCP slave
          * char peer1_0[] = {
@@ -304,11 +307,9 @@ int parse_answer(uint8_t *buf, int buflen) {
  */
 
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
 
     // run_server();
-
-
 
     int count = 1000;
     uint8_t buf[4096] = {0};
@@ -319,18 +320,18 @@ int main(int argc, char** argv) {
         int fd = connect_to_host(hostname, poort);
         if (fd > 0) {
 
-            int req_size = make_modbus_req(buf, sizeof buf, 1, 0, 16384, 9);
-            fprintf(stderr, "req size = %d\n", req_size);
+            ssize_t req_size = make_modbus_req(buf, sizeof buf, 1, 0, 16384, 9);
+            fprintf(stderr, "req size = %zd\n", req_size);
             //int snd_cnt = send(fd, request, sizeof request, MSG_NOSIGNAL); // send do not signal
             //if (snd_cnt == sizeof request) {
-            int snd_cnt = send(fd, buf, req_size, MSG_NOSIGNAL);
+            ssize_t snd_cnt = send(fd, buf, (size_t) req_size, MSG_NOSIGNAL);
             if (snd_cnt == req_size) {
                 // ok, now read reply
-                int recv_cnt = read(fd, reply, 27);
-                fprintf(stderr, "got %d bytes from modbus slave", recv_cnt);
+                ssize_t recv_cnt = read(fd, reply, 27);
+                fprintf(stderr, "got %zd bytes from modbus slave", recv_cnt);
                 if (recv_cnt == 27) {
                     /* I want 27 bytes */
-                    parse_answer(reply, recv_cnt);
+                    parse_answer(reply, (size_t) recv_cnt);
                 }
             }
 

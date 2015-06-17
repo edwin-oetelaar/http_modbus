@@ -9,7 +9,7 @@
 
 jack_ringbuffer_t *
 jack_ringbuffer_create(size_t sz) {
-    int power_of_two;
+    unsigned int power_of_two;
     jack_ringbuffer_t *rb;
 
     if ((rb = malloc(sizeof(jack_ringbuffer_t))) == NULL) {
@@ -18,7 +18,7 @@ jack_ringbuffer_create(size_t sz) {
 
     for (power_of_two = 1; 1 << power_of_two < sz; power_of_two++);
 
-    rb->size = 1 << power_of_two;
+    rb->size = (size_t) (1 << power_of_two);
     rb->size_mask = rb->size;
     rb->size_mask -= 1;
     rb->write_ptr = 0;

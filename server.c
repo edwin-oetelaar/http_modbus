@@ -15,33 +15,32 @@
 #include "http_machine.h"
 
 
-void * fd_to_machine_map[1024] = {0,};
+void *fd_to_machine_map[1024] = {0,};
 
 
 // get sockaddr, IPv4 or IPv6:
 
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*) sa)->sin_addr);
+        return &(((struct sockaddr_in *) sa)->sin_addr);
     }
 
-    return &(((struct sockaddr_in6*) sa)->sin6_addr);
+    return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
 int run_server(void) {
     fd_set master; // master file descriptor list
     fd_set read_fds; // temp file descriptor list for select()
-    int fdmax; // maximum file descriptor number
+    int fdmax = -1; // maximum file descriptor number
 
-    int listener; // listening socket descriptor
-    int newfd; // newly accept()ed socket descriptor
+    int listener = -1; // listening socket descriptor
+    int newfd = -1; // newly accept()ed socket descriptor
     struct sockaddr_storage remoteaddr; // client address
     socklen_t addrlen;
 
     char remoteIP[INET6_ADDRSTRLEN];
 
     int yes = 1; // for setsockopt() SO_REUSEADDR, below
-    // int i, rv;
 
     struct addrinfo hints, *ai, *p;
 
@@ -53,6 +52,7 @@ int run_server(void) {
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
+    int rv;
     if ((rv = getaddrinfo(NULL, PORT, &hints, &ai)) != 0) {
         fprintf(stderr, "selectserver: %s\n", gai_strerror(rv));
         exit(1);
@@ -65,7 +65,7 @@ int run_server(void) {
         }
 
         // lose "address already in use" error message
-        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof (int));
+        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
         if (bind(listener, p->ai_addr, p->ai_addrlen) < 0) {
             close(listener);
@@ -74,14 +74,13 @@ int run_server(void) {
 
         break;
     }
+    freeaddrinfo(ai); // all done with this
 
     // if we got here, it means we didn't get bound
     if (p == NULL) {
         fprintf(stderr, "selectserver: failed to bind\n");
         exit(2);
     }
-
-    freeaddrinfo(ai); // all done with this
 
     // listen
     if (listen(listener, 10) == -1) {
@@ -96,7 +95,7 @@ int run_server(void) {
     fdmax = listener; // so far, it's this one
 
     // main loop
-    for (;;) {
+    for (; ;) {
         read_fds = master; // copy it
 
         struct timeval timeout = {.tv_sec = 1, .tv_usec = 0};
@@ -136,14 +135,15 @@ int run_server(void) {
 
         } else {
             // run through the existing connections looking for data to read
+            int i;
             for (i = 0; i <= fdmax; i++) {
                 if (FD_ISSET(i, &read_fds)) { // we got one!!
                     if (i == listener) {
                         // handle new connection
                         addrlen = sizeof remoteaddr;
                         newfd = accept(listener,
-                                (struct sockaddr *) &remoteaddr,
-                                &addrlen);
+                                       (struct sockaddr *) &remoteaddr,
+                                       &addrlen);
 
                         if (newfd == -1) {
                             perror("accept");
@@ -153,13 +153,13 @@ int run_server(void) {
                                 fdmax = newfd;
                             }
                             printf("selectserver: new connection from %s on "
-                                    "socket %d\n",
-                                    inet_ntop(remoteaddr.ss_family,
-                                    get_in_addr((struct sockaddr*) &remoteaddr),
-                                    remoteIP, INET6_ADDRSTRLEN),
-                                    newfd);
+                                           "socket %d\n",
+                                   inet_ntop(remoteaddr.ss_family,
+                                             get_in_addr((struct sockaddr *) &remoteaddr),
+                                             remoteIP, INET6_ADDRSTRLEN),
+                                   newfd);
                             /* allocate new struct for this client and clear it */
-                            void *ptr = calloc(1, sizeof (http_state_t));
+                            void *ptr = calloc(1, sizeof(http_state_t));
                             if (ptr != NULL) {
                                 /* init machine with defaults */
                                 http_m_init(ptr, newfd);
@@ -177,9 +177,9 @@ int run_server(void) {
                         http_state_t *client = fd_to_machine_map[i]; /* fd is the index */
                         char tmp[4096];
                         /* amount of space in recv buffer ? */
-                        int ib = jack_ringbuffer_write_space(client->recv_queue);
+                        size_t ib = jack_ringbuffer_write_space(client->recv_queue);
                         /* read upto free buffer size */
-                        int numtoread = ((sizeof tmp) > ib) ? ib : sizeof tmp;
+                        size_t numtoread = ((sizeof tmp) > ib) ? ib : sizeof tmp;
                         /* read the bytes from the socket in blocking mode, should not block, since select() told us */
                         ssize_t nbytes = recv(i, tmp, numtoread, MSG_NOSIGNAL);
 
@@ -214,9 +214,11 @@ int run_server(void) {
                             }
 
                             /* copy the recv data into the state machine */
-                            int nrv = jack_ringbuffer_write(client->recv_queue, tmp, nbytes);
+                            size_t nrv = jack_ringbuffer_write(client->recv_queue, tmp, (size_t) nbytes);
                             if (nrv != nbytes) {
-                                fprintf(stderr, "could not fit all data into ring buffer, can not happen. fd=%d obj=%p\n", i, client);
+                                fprintf(stderr,
+                                        "could not fit all data into ring buffer, can not happen. fd=%d obj=%p\n", i,
+                                        client);
                                 /* close up and cleanup */
                             }
 
@@ -274,8 +276,8 @@ int run_server(void) {
                                 ssize_t nsent = send(j, tmp, nbytes, MSG_NOSIGNAL);
                                 if (nsent > 0) {
                                     // update read pointer
-                                    jack_ringbuffer_read_advance(mm->send_queue, nsent);
-                                    fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%d\n", mm, j, nsent);
+                                    jack_ringbuffer_read_advance(mm->send_queue, (size_t) nsent);
+                                    fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%zd\n", mm, j, nsent);
                                 } else if (nsent < 0) {
                                     // send failed, can not continue
                                     fprintf(stderr, "Error sending stuff obj=%p fd=%d close() now\n", mm, j);
