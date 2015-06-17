@@ -111,7 +111,7 @@ char peer1_3[] = {
  */
 
 const int portno = 502;
-const char modbus_host[] = {192, 168, 1, 2};
+const uint8_t modbus_host[] = {192, 168, 1, 2};
 
 const char lookup[] = {0,};
 
