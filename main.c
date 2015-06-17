@@ -230,11 +230,11 @@ int make_modbus_req(uint8_t *buf, int buflen, uint16_t transaction_id, uint8_t u
         // function code
         buf[7] = 4;
         // register id
-        buf[8] =  (reg_id & 0xFF00) >> 8;
-        buf[9] =  (reg_id & 0x00FF);
+        buf[8] = (reg_id & 0xFF00) >> 8;
+        buf[9] = (reg_id & 0x00FF);
         // register count
-        buf[10] =  (reg_count & 0xFF00) >> 8;
-        buf[11] =  (reg_count & 0x00FF);
+        buf[10] = (reg_count & 0xFF00) >> 8;
+        buf[11] = (reg_count & 0x00FF);
 
         return 12; // msg length
     } else {
@@ -280,9 +280,9 @@ int parse_answer(uint8_t *buf, int buflen) {
         int j = 0;
         int i = 0;
         for (i = 0; i < resp_len; i += 2) {
-            
+
             uint16_t regval = (*(buf + 9 + i) << 8) + *(buf + 10 + i);
-            
+
             fprintf(stderr, "register %"PRIu16" = %"PRIu16"\n", j, regval);
             j++;
         }
@@ -306,10 +306,10 @@ int parse_answer(uint8_t *buf, int buflen) {
 
 int main(int argc, char** argv) {
 
-    run_server();
-    
-    
-    
+    // run_server();
+
+
+
     int count = 1000;
     uint8_t buf[4096] = {0};
     uint8_t reply[4096] = {0};
