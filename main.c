@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <arpa/inet.h>
+#include "server.h"
 
 /*
  * 
@@ -308,8 +309,8 @@ int parse_answer(uint8_t *buf, size_t buflen) {
 
 
 int main(int argc, char **argv) {
-
-    // run_server();
+    fprintf(stderr,"Edwin's HTTP to Modbus proxy server v0.1\n");
+    run_server();
 
     int count = 1000;
     uint8_t buf[4096] = {0};

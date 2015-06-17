@@ -65,7 +65,7 @@ int run_server(void) {
         }
 
         // lose "address already in use" error message
-        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof (int));
 
         if (bind(listener, p->ai_addr, p->ai_addrlen) < 0) {
             close(listener);
@@ -95,7 +95,7 @@ int run_server(void) {
     fdmax = listener; // so far, it's this one
 
     // main loop
-    for (; ;) {
+    for (;;) {
         read_fds = master; // copy it
 
         struct timeval timeout = {.tv_sec = 1, .tv_usec = 0};
@@ -142,8 +142,8 @@ int run_server(void) {
                         // handle new connection
                         addrlen = sizeof remoteaddr;
                         newfd = accept(listener,
-                                       (struct sockaddr *) &remoteaddr,
-                                       &addrlen);
+                                (struct sockaddr *) &remoteaddr,
+                                &addrlen);
 
                         if (newfd == -1) {
                             perror("accept");
@@ -153,13 +153,13 @@ int run_server(void) {
                                 fdmax = newfd;
                             }
                             printf("selectserver: new connection from %s on "
-                                           "socket %d\n",
-                                   inet_ntop(remoteaddr.ss_family,
-                                             get_in_addr((struct sockaddr *) &remoteaddr),
-                                             remoteIP, INET6_ADDRSTRLEN),
-                                   newfd);
+                                    "socket %d\n",
+                                    inet_ntop(remoteaddr.ss_family,
+                                    get_in_addr((struct sockaddr *) &remoteaddr),
+                                    remoteIP, INET6_ADDRSTRLEN),
+                                    newfd);
                             /* allocate new struct for this client and clear it */
-                            void *ptr = calloc(1, sizeof(http_state_t));
+                            void *ptr = calloc(1, sizeof (http_state_t));
                             if (ptr != NULL) {
                                 /* init machine with defaults */
                                 http_m_init(ptr, newfd);
@@ -246,7 +246,7 @@ int run_server(void) {
             } // end for fds
         }
 
-        /* loop over every machine and check transmit buffer */
+        /* loop over every http machine and check transmit buffer */
         int j;
         for (j = 0; j <= fdmax; j++) {
             // send to everyone!
@@ -254,8 +254,8 @@ int run_server(void) {
                 // except the listener
                 if (j != listener) {
                     http_state_t *mm = fd_to_machine_map[j];
-                    if (mm != NULL) {
-                        /* maybe we need to send stuff out now ?? */
+                    if (mm != NULL && (mm->machine_type == http_machine_magic)) {
+                        /* is there data in TX buffer to send ?? */
                         if (jack_ringbuffer_read_space(mm->send_queue) > 0) {
                             /*
                              // where socketfd is the socket you want to make non-blocking
@@ -272,10 +272,12 @@ int run_server(void) {
                             char tmp[1024] = {0,};
                             size_t nbytes = jack_ringbuffer_peek(mm->send_queue, tmp, sizeof tmp);
                             if (nbytes > 0) {
-
+                                /* TODO set the socket to NO_BLOCK so it will not block 
+                                 * and add a TIMEOUT here so we do not keep trying forever
+                                 */
                                 ssize_t nsent = send(j, tmp, nbytes, MSG_NOSIGNAL);
                                 if (nsent > 0) {
-                                    // update read pointer
+                                    // update read pointer, data has left the building
                                     jack_ringbuffer_read_advance(mm->send_queue, (size_t) nsent);
                                     fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%zd\n", mm, j, nsent);
                                 } else if (nsent < 0) {
@@ -290,6 +292,7 @@ int run_server(void) {
                             }
                             /* after sending stuff, clean up the object if so requested */
                             if ((nbytes == 0) && mm->deferred_cleanup == 1) {
+                                /* no more bytes to send, and cleanup requested */
                                 close(j);
                                 FD_CLR(j, &master); // remove from master set
                                 http_m_deinit(mm);
@@ -299,7 +302,7 @@ int run_server(void) {
                             }
                         }
                     } else {
-                        fprintf(stderr, "Unexpected NULL object in transmit fd=%d\n", j);
+                        fprintf(stderr, "Unexpected NULL object in transmit fd=%d obj=%p\n", j, mm);
                     }
                 } // not listener
             } // if fd is set

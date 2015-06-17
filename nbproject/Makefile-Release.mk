@@ -37,6 +37,7 @@ OBJECTDIR=${CND_BUILDDIR}/${CND_CONF}/${CND_PLATFORM}
 OBJECTFILES= \
 	${OBJECTDIR}/http_machine.o \
 	${OBJECTDIR}/main.o \
+	${OBJECTDIR}/mb_tcp_machine.o \
 	${OBJECTDIR}/not_used.c.o \
 	${OBJECTDIR}/ringbuffer.o \
 	${OBJECTDIR}/server.o
@@ -75,6 +76,11 @@ ${OBJECTDIR}/main.o: main.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/main.o main.c
+
+${OBJECTDIR}/mb_tcp_machine.o: mb_tcp_machine.c 
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/mb_tcp_machine.o mb_tcp_machine.c
 
 ${OBJECTDIR}/not_used.c.o: not_used.c.c 
 	${MKDIR} -p ${OBJECTDIR}
