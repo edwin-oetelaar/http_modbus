@@ -121,14 +121,14 @@ int run_server(void) {
                     // set the timestamp
                     gettimeofday(&m->buffer_timestamp, NULL);
                     // call that machine, buflen=0 and hangup=0
-                    int smrv = http_machine_step(m, 0);
+                    int smrv = http_m_step(m, 0);
 
-                    if (smrv < 0) {
+                    if ((smrv < 0) && (m->deferred_cleanup == 0)) {
                         /* error or timeout we need to close and cleanup */
                         // on error always clean up anyway
                         close(i); // bye!
                         FD_CLR(i, &master); // remove from master set
-                        http_machine_deinit(m);
+                        http_m_deinit(m);
                         free(m);
                         fd_to_machine_map[i] = 0; /* remove ref */
                     }
@@ -163,7 +163,7 @@ int run_server(void) {
                             void *ptr = calloc(1, sizeof (http_state_t));
                             if (ptr != NULL) {
                                 /* init machine with defaults */
-                                http_machine_init(ptr, newfd);
+                                http_m_init(ptr, newfd);
                                 fprintf(stderr, "new machine created %p with id=%d\n", ptr, newfd);
                                 fd_to_machine_map[newfd] = ptr;
                             } else {
@@ -181,7 +181,7 @@ int run_server(void) {
                         int ib = jack_ringbuffer_write_space(client->recv_queue);
                         /* read upto free buffer size */
                         int numtoread = ((sizeof tmp) > ib) ? ib : sizeof tmp;
-                        /* read the bytes from the socket in blocking mode */
+                        /* read the bytes from the socket in blocking mode, should not block, since select() told us */
                         ssize_t nbytes = recv(i, tmp, numtoread, MSG_NOSIGNAL);
 
                         if (nbytes <= 0) {
@@ -191,19 +191,19 @@ int run_server(void) {
                                 printf("selectserver: socket %d hung up\n", i);
                                 // signal the state machine, maybe needs to handle this
 
-                                http_machine_step(client, 1);
+                                http_m_step(client, 1);
 
                                 // we must clean up always
                             } else {
                                 // < 0 from recv, error condition
                                 perror("recv");
                                 // we must add cleanup code here TODO
-                                http_machine_step(client, 2);
+                                http_m_step(client, 2);
                             }
                             // on error always clean up anyway
                             close(i); // bye!
                             FD_CLR(i, &master); // remove from master set
-                            http_machine_deinit(client);
+                            http_m_deinit(client);
                             free(client);
                             fd_to_machine_map[i] = 0; /* remove ref */
                             client = NULL;
@@ -223,14 +223,14 @@ int run_server(void) {
 
 
                             // feed into state machine
-                            int smrv = http_machine_step(client, 0);
+                            int smrv = http_m_step(client, 0);
 
                             // on error cleanup the connection and the statemachine
-                            if (smrv < 0) {
-                                /* error, cleanup */
+                            if ((smrv < 0) && client->deferred_cleanup == 0) {
+                                /* error, cleanup now if requested */
                                 close(i);
                                 FD_CLR(i, &master); // remove from master set
-                                http_machine_deinit(client);
+                                http_m_deinit(client);
                                 free(client);
                                 fd_to_machine_map[i] = 0; /* remove ref */
                                 client = NULL; /* invalidate pointer */
@@ -267,30 +267,42 @@ int run_server(void) {
                                      
                              */
                             /* copy the data from the queue without moving the read pointer, since we do not know if sending will work */
-                            char tmp[1024];
-                            ssize_t nsent = 0;
-                            size_t nbytes = jack_ringbuffer_peek(mm->send_queue, tmp, sizeof tmp);
-                            nsent = send(i, tmp, nbytes, MSG_NOSIGNAL);
-                            if (nsent > 0) {
-                                // update read pointer
-                                jack_ringbuffer_read_advance(mm->send_queue, nsent);
-                                fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%d\n", mm, i, nsent);
-                            } else if (nsent < 0) {
-                                // send failed, can not continue
-                                fprintf(stderr, "Error sending stuff obj=%p fd=%d close() now\n", mm, i);
-                                /* TODO cleanup and close up */
-                            } else {
-                                // no data available was sent out, although the queue was not empty, very strange
-                                fprintf(stderr, "no data sent obj=%p fd=%d\n", mm, i);
-                            }
 
+                            char tmp[1024] = {0,};
+                            size_t nbytes = jack_ringbuffer_peek(mm->send_queue, tmp, sizeof tmp);
+                            if (nbytes > 0) {
+
+                                ssize_t nsent = send(j, tmp, nbytes, MSG_NOSIGNAL);
+                                if (nsent > 0) {
+                                    // update read pointer
+                                    jack_ringbuffer_read_advance(mm->send_queue, nsent);
+                                    fprintf(stderr, "OK sending stuff obj=%p fd=%d len=%d\n", mm, j, nsent);
+                                } else if (nsent < 0) {
+                                    // send failed, can not continue
+                                    fprintf(stderr, "Error sending stuff obj=%p fd=%d close() now\n", mm, j);
+                                    perror("vreemd:");
+                                    /* TODO cleanup and close up, set deferred_cleanup flag maybe */
+                                } else {
+                                    // no data available was sent out, although the queue was not empty, very strange
+                                    fprintf(stderr, "no data sent obj=%p fd=%d\n", mm, j);
+                                }
+                            }
+                            /* after sending stuff, clean up the object if so requested */
+                            if ((nbytes == 0) && mm->deferred_cleanup == 1) {
+                                close(j);
+                                FD_CLR(j, &master); // remove from master set
+                                http_m_deinit(mm);
+                                free(mm);
+                                fd_to_machine_map[j] = 0; /* remove ref */
+                                mm = NULL; /* invalidate pointer */
+                            }
                         }
                     } else {
                         fprintf(stderr, "Unexpected NULL object in transmit fd=%d\n", j);
                     }
                 } // not listener
             } // if fd is set
-        } // end for fds
+        } // end for fds to send
     } // END for(;;)
 
     return 0;
