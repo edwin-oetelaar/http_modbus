@@ -12,7 +12,7 @@ jack_ringbuffer_create(size_t sz) {
     int power_of_two;
     jack_ringbuffer_t *rb;
 
-    if ((rb = malloc(sizeof (jack_ringbuffer_t))) == NULL) {
+    if ((rb = malloc(sizeof(jack_ringbuffer_t))) == NULL) {
         return NULL;
     }
 
@@ -242,7 +242,7 @@ jack_ringbuffer_write_advance(jack_ringbuffer_t *rb, size_t cnt) {
 
 void
 jack_ringbuffer_get_read_vector(const jack_ringbuffer_t *rb,
-        jack_ringbuffer_data_t *vec) {
+                                jack_ringbuffer_data_t *vec) {
     size_t free_cnt;
     size_t cnt2;
     size_t w, r;
@@ -285,7 +285,7 @@ jack_ringbuffer_get_read_vector(const jack_ringbuffer_t *rb,
 
 void
 jack_ringbuffer_get_write_vector(const jack_ringbuffer_t *rb,
-        jack_ringbuffer_data_t *vec) {
+                                 jack_ringbuffer_data_t *vec) {
     size_t free_cnt;
     size_t cnt2;
     size_t w, r;

@@ -12,7 +12,9 @@
 #include <ctype.h>
 #include <string.h>
 
-const int verbose = 0; /* extra debug output */
+const int verbose = 0;
+
+/* extra debug output */
 
 int http_m_init(http_state_t *self, int fd) {
     self->current_state = 0;
@@ -54,14 +56,15 @@ int is_uri_char(uint8_t c) {
             c == '+' || c == '-' || c == ':' || c == '#' || c == '@' ||
             c == '$' || c == '&' || c == '=' || c == ';' || c == '~' ||
             c == '*'
-            ) return 1;
+            )
+        return 1;
 
     return 0;
 }
 
 int is_httpver_char(uint8_t c) {
     if (c == 'H' || c == 'T' || c == 'P' || c == '/' ||
-            c == '0' || c == '1' || c == '.')
+        c == '0' || c == '1' || c == '.')
         return 1;
     else
         return 0;
@@ -97,7 +100,7 @@ int http_m_handle_header_line(http_state_t *self, const char *buf, int buflen) {
     /* convert to lower case copy */
     int i;
     for (i = 0; i < buflen; i++) {
-        tmp[i] = tolower(buf[i]);
+        tmp[i] = (char) tolower(buf[i]);
     }
     tmp[i] = 0; /* end string, todo CHECK 511 and 512 length input */
 
@@ -234,7 +237,7 @@ int http_m_step_single_byte(http_state_t *self, const char c, int control_flag) 
 
         case 5:
             /* read upto a CR into line_buffer a header line */
-            if (!(self->line_buffer_index < sizeof self->line_buffer)) {
+            if (self->line_buffer_index >= sizeof self->line_buffer) {
                 return -1; /* too long is protocol error  */
             } else if (is_header_char(c)) {
                 /* the byte is a valid byte inside a header line, append to line */
@@ -396,7 +399,6 @@ int http_m_step(http_state_t *self, int event_type) {
         /* next byte from queue */
         nn = jack_ringbuffer_read(self->recv_queue, &c, 1);
     }
-
 
 
     if (event_type == 0) {

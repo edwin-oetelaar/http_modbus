@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -42,7 +41,7 @@ int run_server(void) {
     char remoteIP[INET6_ADDRSTRLEN];
 
     int yes = 1; // for setsockopt() SO_REUSEADDR, below
-    int i, rv;
+    // int i, rv;
 
     struct addrinfo hints, *ai, *p;
 
