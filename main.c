@@ -175,6 +175,7 @@ int connect_to_host(const char *host, const char *port) {
     hints.ai_socktype = SOCK_STREAM;
 
     int status = getaddrinfo(host, port, &hints, &res);
+    
     if (status != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         rv = -1;
@@ -310,8 +311,9 @@ int parse_answer(uint8_t *buf, size_t buflen) {
 
 int main(int argc, char **argv) {
     fprintf(stderr,"Edwin's HTTP to Modbus proxy server v0.1\n");
-    run_server();
-
+    //run_server();
+  //   mainx();
+    
     int count = 1000;
     uint8_t buf[4096] = {0};
     uint8_t reply[4096] = {0};

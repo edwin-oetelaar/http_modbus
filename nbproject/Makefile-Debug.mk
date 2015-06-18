@@ -35,6 +35,7 @@ OBJECTDIR=${CND_BUILDDIR}/${CND_CONF}/${CND_PLATFORM}
 
 # Object Files
 OBJECTFILES= \
+	${OBJECTDIR}/connect_tester.o \
 	${OBJECTDIR}/http_machine.o \
 	${OBJECTDIR}/main.o \
 	${OBJECTDIR}/mb_tcp_machine.o \
@@ -66,6 +67,11 @@ LDLIBSOPTIONS=
 ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/h20_example: ${OBJECTFILES}
 	${MKDIR} -p ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}
 	${LINK.c} -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/h20_example ${OBJECTFILES} ${LDLIBSOPTIONS}
+
+${OBJECTDIR}/connect_tester.o: connect_tester.c 
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -Wall -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/connect_tester.o connect_tester.c
 
 ${OBJECTDIR}/http_machine.o: http_machine.c 
 	${MKDIR} -p ${OBJECTDIR}

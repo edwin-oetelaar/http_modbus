@@ -61,7 +61,7 @@ int is_uri_char(uint8_t c) {
 
 int is_httpver_char(uint8_t c) {
     if (c == 'H' || c == 'T' || c == 'P' || c == '/' ||
-        c == '0' || c == '1' || c == '.')
+            c == '0' || c == '1' || c == '.')
         return 1;
     else
         return 0;
@@ -111,7 +111,7 @@ int http_m_handle_header_line(http_state_t *self, const char *buf, int buflen) {
         fprintf(stderr, "content-length found : %d\n", n);
         self->content_length = n;
     } else if (!strcmp(tmp, "connection: keep-alive")) {
-        fprintf(stderr, "Connection keep alive detected\n");
+        fprintf(stderr, "HTTP/1.1 Connection keep alive detected\n");
         self->keep_alive = 1;
     } else {
         fprintf(stderr, "no match\n");
@@ -128,7 +128,7 @@ int http_verb_to_code(const char *verb) {
     return 0; /* unknown verb */
 }
 
-int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_flag) {
+static int http_m_step_single_byte(http_state_t *self, const uint8_t c, int control_flag) {
     /* standard FSM
      * based on input c take one step based on the current state
      * no way to do multiple state-transitions based on one input char
@@ -361,7 +361,7 @@ int http_m_step(http_state_t *self, int event_type) {
     if (nn > 0) {
         /* we reset timeout after every reception */
         /* if we idle too long it still times out */
-        self->idle_timestamp = self->buffer_timestamp;
+        self->idle_timestamp = self->call_timestamp;
     }
 
     while (nn > 0) {
@@ -378,14 +378,16 @@ int http_m_step(http_state_t *self, int event_type) {
             if (self->keep_alive == 0) {
                 self->deferred_cleanup = 1; /* write buffer before self destruct */
                 http_m_reset(self);
-                return -1;
+                return -1; /* request connection close() and cleanup */
             } else {
                 /* prepare http machine for new bytes, reset state.. */
                 http_m_reset(self);
             }
         } else if (rv == 2) {
             /* complete POST received, start handling and send answer  */
-            jack_ringbuffer_write(self->send_queue, tmp, sizeof tmp);
+            /* jack_ringbuffer_write(self->send_queue, tmp, sizeof tmp); */
+            /* the mainloop must create an object to do the work based on this data */
+            
         } else if (rv == 3) {
             /* PUT request */
         } else if (rv == 4) {
@@ -403,7 +405,7 @@ int http_m_step(http_state_t *self, int event_type) {
         if (self->idle_timestamp.tv_sec == 0) {
             /* no data received yet, because then the idle_timestamp would be a value */
             /* see if we have a timeout on CONNECT without data coming in */
-            if ((self->buffer_timestamp.tv_sec - self->connection_timestamp.tv_sec) < 20) {
+            if ((self->call_timestamp.tv_sec - self->connection_timestamp.tv_sec) < 20) {
                 /* no timeout yet on connection */
             } else {
                 fprintf(stderr, "no initial data in 20 seconds, close connection\n");
@@ -411,7 +413,7 @@ int http_m_step(http_state_t *self, int event_type) {
             }
         } else {
             /* a timer event between some data, just check the idle_timestamp for now */
-            if ((self->buffer_timestamp.tv_sec - self->idle_timestamp.tv_sec) < 10) {
+            if ((self->call_timestamp.tv_sec - self->idle_timestamp.tv_sec) < 10) {
                 /* no timeout yet */
             } else {
                 /* taking too long */

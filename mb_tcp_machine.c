@@ -362,7 +362,7 @@ int mb_m_step(mb_state_t *self, int event_type) {
     if (nn > 0) {
         /* we reset timeout after every reception */
         /* if we idle too long it still times out */
-        self->idle_timestamp = self->buffer_timestamp;
+        self->idle_timestamp = self->call_timestamp;
     }
 
     while (nn > 0) {
@@ -404,7 +404,7 @@ int mb_m_step(mb_state_t *self, int event_type) {
         if (self->idle_timestamp.tv_sec == 0) {
             /* no data received yet, because then the idle_timestamp would be a value */
             /* see if we have a timeout on CONNECT without data coming in */
-            if ((self->buffer_timestamp.tv_sec - self->connection_timestamp.tv_sec) < 20) {
+            if ((self->call_timestamp.tv_sec - self->connection_timestamp.tv_sec) < 20) {
                 /* no timeout yet on connection */
             } else {
                 fprintf(stderr, "no initial data in 20 seconds, close connection\n");
@@ -412,7 +412,7 @@ int mb_m_step(mb_state_t *self, int event_type) {
             }
         } else {
             /* a timer event between some data, just check the idle_timestamp for now */
-            if ((self->buffer_timestamp.tv_sec - self->idle_timestamp.tv_sec) < 10) {
+            if ((self->call_timestamp.tv_sec - self->idle_timestamp.tv_sec) < 10) {
                 /* no timeout yet */
             } else {
                 /* taking too long */

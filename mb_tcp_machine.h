@@ -21,7 +21,7 @@ extern "C" {
         int my_fd; /* my socket fd to read and write */
         int keep_alive; /* use keep alive http 1.1 */
         int deferred_cleanup; /* try to send stuff, then cleanup and destroy */
-        struct timeval buffer_timestamp; /* buffer timestamping gettimeofday */
+        struct timeval call_timestamp; /* buffer timestamping gettimeofday */
         struct timeval idle_timestamp; /* updated timestamp after every recv of data */
         struct timeval connection_timestamp; /* moment of connection */
         jack_ringbuffer_t *recv_queue;
@@ -58,7 +58,7 @@ extern "C" {
 
     int mb_m_step(mb_state_t *self, int hangup);
 
-    static int mb_m_step_single_byte(mb_state_t *self, uint8_t c, int control_flag); /* parse input chars */
+    // static int mb_m_step_single_byte(mb_state_t *self, const uint8_t c, int control_flag);
 
 #ifdef    __cplusplus
 }
