@@ -9,10 +9,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <sys/time.h>
 
 #include "server.h"
+#include "generic_machine.h"
 #include "http_machine.h"
+#include "mb_tcp_machine.h"
 
 
 void *fd_to_machine_map[1024] = {0,};
@@ -31,6 +34,7 @@ void *get_in_addr(struct sockaddr *sa) {
 int run_server(void) {
     fd_set master; // master file descriptor list
     fd_set read_fds; // temp file descriptor list for select()
+    fd_set write_fds; // temp file descriptor list for select() 
     int fdmax = -1; // maximum file descriptor number
 
     int listener = -1; // listening socket descriptor
@@ -66,6 +70,10 @@ int run_server(void) {
 
         // lose "address already in use" error message
         setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof (int));
+        /* try to set NODELAY on listener, might be inherited by connected sockets */
+        if (setsockopt(listener, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof (int))) {
+            perror("setsockopt(listener, TCP_NODELAY)");
+        }
 
         if (bind(listener, p->ai_addr, p->ai_addrlen) < 0) {
             close(listener);
@@ -109,24 +117,43 @@ int run_server(void) {
             /* handle timeouts */
             fprintf(stderr, "timeout\n");
             // signal all running state machines of timer event
-            int max_to_check = fdmax + 1;
             int i = 0;
-            for (i = 0; i < max_to_check; i++) {
+            for (i = 0; i <= fdmax; i++) {
                 /* get machine object pointer by FD as id */
-                http_state_t *m = fd_to_machine_map[i];
-                /* is it a machine then handle it */
-                if (m != NULL) {
+                gm_state_t *gm = fd_to_machine_map[i];
+                /* is it a http_machine then handle it */
+                if ((gm != NULL) && (gm->machine_type == http_machine_magic)) {
+                    http_state_t *m = (http_state_t *) gm;
                     // set the timestamp
-                    gettimeofday(&m->buffer_timestamp, NULL);
+                    gettimeofday(&m->call_timestamp, NULL);
                     // call that machine, buflen=0 and hangup=0
                     int smrv = http_m_step(m, 0);
-
+                    /* check for error */
                     if ((smrv < 0) && (m->deferred_cleanup == 0)) {
                         /* error or timeout we need to close and cleanup */
                         // on error always clean up anyway
                         close(i); // bye!
                         FD_CLR(i, &master); // remove from master set
                         http_m_deinit(m);
+                        free(m);
+                        fd_to_machine_map[i] = 0; /* remove ref */
+                    }
+                }
+
+                /* is it a mb machine, then handle it */
+                if ((gm != NULL) && (gm->machine_type == mb_machine_magic)) {
+                    mb_state_t *m = (mb_state_t *) gm;
+                    // set the timestamp
+                    gettimeofday(&m->call_timestamp, NULL);
+                    // call that machine, buflen=0 and hangup=0
+                    int smrv = mb_m_step(m, 0);
+                    /* check for error */
+                    if ((smrv < 0) && (m->deferred_cleanup == 0)) {
+                        /* error or timeout we need to close and cleanup */
+                        // on error always clean up anyway
+                        close(i); // bye!
+                        FD_CLR(i, &master); // remove from master set
+                        mb_m_deinit(m);
                         free(m);
                         fd_to_machine_map[i] = 0; /* remove ref */
                     }
@@ -158,6 +185,19 @@ int run_server(void) {
                                     get_in_addr((struct sockaddr *) &remoteaddr),
                                     remoteIP, INET6_ADDRSTRLEN),
                                     newfd);
+                            /* set socket options, KEEP_ALIVE en DISABLE NAGLE  */
+                            /* Set the option active */
+                            int optval = 1;
+                            int optlen = sizeof (optval);
+                            if (setsockopt(newfd, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen) < 0) {
+                                perror("setsockopt(SO_KEEPALIVE)");
+                            }
+
+                            if (setsockopt(newfd, IPPROTO_TCP, TCP_NODELAY, &optval, optlen) < 0) {
+                                perror("setsockopt(TCP_NODELAY)");
+
+                            }
+
                             /* allocate new struct for this client and clear it */
                             void *ptr = calloc(1, sizeof (http_state_t));
                             if (ptr != NULL) {
@@ -208,7 +248,7 @@ int run_server(void) {
                             client = NULL;
                         } else {
                             // we got some data from a client, timestamp the data
-                            int trv = gettimeofday(&client->buffer_timestamp, NULL);
+                            int trv = gettimeofday(&client->call_timestamp, NULL);
                             if (trv == -1) {
                                 perror("gettime problem");
                             }
@@ -329,3 +369,4 @@ int run_server(void) {
  * if message needs modbus request
  * 
  */
+
